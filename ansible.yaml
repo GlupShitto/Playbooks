@@ -1,0 +1,115 @@
+- name: Install Docker
+  hosts: kubernetes
+  tasks:
+   - name: Download Docker repo
+     become: yes
+     get_url:
+       url: https://download.docker.com/linux/centos/docker-ce.repo
+       dest: /etc/yum.repos.d/
+       mode: 0755
+   - name: Download kubernetes repo
+     become: yes
+     get_url:
+       url: https://raw.githubusercontent.com/GlupShitto/kubernetes/main/kubernetes.repo
+       dest: /etc/yum.repos.d/
+       mode: 0755
+
+
+
+
+   - name: Swap deaktivieren (1/2)
+     shell: swapoff -a
+
+   - name: Swap im fstab löschen (2/2)
+     replace:
+       path: /etc/fstab
+       regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+       replace: '# \1'
+
+
+   - name: Creating a file with content
+     copy:
+       dest: "/etc/modules-load.d/containerd.conf"
+       content: |
+        overlay
+        br_netfilter
+
+   - name: run commands
+     shell: modprobe overlay
+   - name: run command
+     shell: modprobe br_netfilter
+
+   - name: Creating a file with content
+     copy:
+       dest: "/etc/sysctl.d/99-kubernetes-cri.conf"
+       content: |
+        net.bridge.bridge-nf-call-iptables  = 1
+        net.ipv4.ip_forward                 = 1
+        net.bridge.bridge-nf-call-ip6tables = 1
+
+   - name: run command
+     shell: sysctl --system
+
+   
+   - name: Install yum-utils device-mapper-persistent-data lvm2
+     ansible.builtin.dnf:
+       name:
+         - yum-utils 
+         - device-mapper-persistent-data
+         - lvm2
+       state: latest  
+
+   - name: remove runc
+     ansible.builtin.dnf:
+       name:
+         - runc
+       state: absent  
+
+   - name: Install containerd
+     ansible.builtin.dnf:
+       name:
+         - containerd.io
+       state: latest  
+
+        
+   - name: Create a directory if it does not exist
+     ansible.builtin.file:
+       path: /etc/some_directory
+       state: directory
+       mode: '0755'
+
+   - name: Bind containerd config
+     shell: containerd config default > /etc/containerd/config.toml
+
+   - name: Cgroup driver aktvieren
+     lineinfile: 
+       path: /etc/containerd/config.toml
+       regexp: "SystemdCgroup = false" 
+       line: "            SystemdCgroup = true"
+       backrefs: yes
+
+   - name: restart containerd
+     shell: systemctl restart containerd  
+   - name: enable containerd
+     shell: systemctl enable containerd
+
+   - name: kubeadm kubelet und kubectl installieren
+     ansible.builtin.dnf:
+       name:
+         - kubeadm 
+         - kubectl
+         - kubelet
+       state: latest
+
+   - name: enable kubelet
+     shell: systemctl enable kubelet
+
+   - name: Kubernetes commands
+     shell: echo 'KUBELET_EXTRA_ARGS="--fail-swap-on=false"' > /etc/sysconfig/kubelet
+   
+   - name: start kubelet
+     shell: systemctl start kubelet
+
+   - name: Maschinen rebooten
+     ansible.builtin.reboot:
+
